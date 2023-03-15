@@ -3,7 +3,7 @@ Cherp unread notifications, delivered straight to your Android device!
 
 ### FAQ
 Q: Where/How do I download this?
-A: Find the latest release here: https://github.com/Talos0248/Cherp-Notify-Android/releases and download the apk file. Install and enjoy!
+> A: Find the latest release here: https://github.com/Talos0248/Cherp-Notify-Android/releases and download the apk file. Install and enjoy!
 
 Q: Why does play protect say that the app is unsafe?
 > A: The app hasn't been signed, thus Google Play doesn't recognize it. To install, tap 'more details' and then 'install anyways'.
