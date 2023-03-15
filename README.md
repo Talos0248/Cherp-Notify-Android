@@ -1,7 +1,7 @@
 # Cherp Notify: The Android Version!
-## Cherp unread notifications, delivered straight to your Android device!
+Cherp unread notifications, delivered straight to your Android device!
 
-###FAQ
+### FAQ
 
 Q: Why does play protect say that the app is unsafe?
 A: The app hasn't been signed, thus Google Play doesn't recognize it. To install, tap 'more details' and then 'install anyways'.
