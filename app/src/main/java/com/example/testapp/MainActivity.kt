@@ -225,24 +225,26 @@ class MainActivity : AppCompatActivity() {
                 .add("csrf", csrf)
                 .build()
 
-            val loginResp = postFormDataResponse(loginUrl, loginPayload)
 
-            if (loginResp.code != 200) {
-                withContext(Dispatchers.Main) {
-                    showToast("Login failed")
+                val loginResp = postFormDataResponse(loginUrl, loginPayload)
+
+                if (loginResp.code != 200) {
+                    withContext(Dispatchers.Main) {
+                        showToast("Login failed. Recheck Your credentials, or you may already be logged in.")
+                    }
+                } else {
+
+                    val loginStatus = JSONObject(loginResp.body?.string() ?: "").getString("status")
+
+                    withContext(Dispatchers.Main) {
+                        showToast("Login Status: $loginStatus")
+                    }
+
+                    if (loginStatus == "success") {
+                        startPollingUnreadMessages()
+                    }
                 }
-            } else {
 
-                val loginStatus = JSONObject(loginResp.body?.string() ?: "").getString("status")
-
-                withContext(Dispatchers.Main) {
-                    showToast("Login Status: $loginStatus")
-                }
-
-                if (loginStatus == "success"){
-                    startPollingUnreadMessages()
-                }
-            }
         }
     }
 
