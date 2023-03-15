@@ -1,10 +1,14 @@
 package com.example.testapp
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.Service
 import android.content.Context
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.IBinder
 import android.widget.Button
 import android.widget.EditText
 import android.widget.Toast
@@ -14,7 +18,146 @@ import kotlinx.coroutines.*
 import okhttp3.*
 import okhttp3.logging.HttpLoggingInterceptor
 import org.json.JSONObject
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
+object HttpClientProvider {
+    private var client: OkHttpClient? = null
+
+    fun getClient(context: Context): OkHttpClient {
+        if (client == null) {
+            client = OkHttpClient().newBuilder()
+                //.addInterceptor(HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.HEADERS))
+                //.addInterceptor(HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.BODY))
+                .cookieJar(MyCookieJar())
+                .build()
+        }
+        return client!!
+    }
+}
+
+class UnreadMessageService : Service() {
+    private lateinit var session: OkHttpClient
+    private val unreadUrl = "https://cherp.chat/api/chat/list/unread"
+    private var previousUnreadData = JSONObject()
+    private var previousUnreadTime = "0001-01-01 00:00:00.000000"
+    private val coroutineScope = CoroutineScope(Dispatchers.IO)
+
+    override fun onBind(intent: Intent?): IBinder? {
+        return null
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+
+        session = HttpClientProvider.getClient(this)
+    }
+
+    fun compareDatetimes(datetime1: String, datetime2: String): Int {
+        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss[.SSSSSS]")
+        val dateTime1 = LocalDateTime.parse(datetime1, formatter)
+        val dateTime2 = LocalDateTime.parse(datetime2, formatter)
+        return dateTime1.compareTo(dateTime2)
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        coroutineScope.launch {
+            while (true) {
+                try {
+
+                    val unreadData = getJsonResponse2(unreadUrl)
+                    val chats = unreadData.getJSONArray("chats")
+                    val chatLength = chats.length()
+
+                    if ((unreadData.toString() != previousUnreadData.toString()) && (chatLength > 0)) {
+
+                        val unreadTime = chats.getJSONObject(0).getString("updated")
+
+                        if(compareDatetimes(unreadTime,previousUnreadTime) > 0){
+                            previousUnreadTime = unreadTime
+                            val status = chats.getJSONObject(0).getString("status")
+                            if (status == "ended"){
+                                showNotification("Oh no", "One of your chats has ended :(")
+                            } else{
+                                showNotification("New Unread Detected", "You've got a new unread!")
+                            }
+
+                        }
+                        previousUnreadData = unreadData
+                    }
+                } catch (e: java.lang.Exception){
+                    println(e)
+                }
+                delay(20000)
+            }
+        }
+        startForeground(NOTIFICATION_ID, createNotification("Polling for unread messages"))
+        return START_STICKY
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Release resources
+        coroutineScope.launch {
+            session.dispatcher.executorService.shutdown()
+            session.connectionPool.evictAll()
+        }
+    }
+
+    private fun createNotification(contentText: String): Notification {
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_LOW
+            )
+            notificationManager.createNotificationChannel(channel)
+        }
+
+        val notificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Unread Message Service")
+            .setContentText(contentText)
+            .setSmallIcon(R.drawable.ic_stat_name)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+
+        return notificationBuilder.build()
+    }
+
+    companion object {
+        const val NOTIFICATION_ID = 1001
+        const val CHANNEL_ID = "UnreadMessageService"
+        const val CHANNEL_NAME = "Unread Message Service"
+    }
+
+    private fun getJsonResponse2(url: String): JSONObject {
+        val request = Request.Builder()
+            .url(url)
+            .build()
+        val response = session.newCall(request).execute()
+        val responseBody = response.body!!.string()
+        response.body?.close()
+        return JSONObject(responseBody)
+    }
+
+    private fun showNotification(title: String, message: String) {
+        val notificationManager =
+            getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel =
+                NotificationChannel("unreads", "Cherp Unread Notifications", NotificationManager.IMPORTANCE_HIGH)
+            notificationManager.createNotificationChannel(channel)
+        }
+        val notification = NotificationCompat.Builder(this, "unreads")
+            .setContentTitle(title)
+            .setContentText(message)
+            .setSmallIcon(R.drawable.ic_unread)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+        notificationManager.notify(1, notification)
+    }
+}
 
 
 class MyCookieJar : CookieJar {
@@ -63,11 +206,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        session = OkHttpClient().newBuilder()
-            .addInterceptor(HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.HEADERS))
-            .addInterceptor(HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.BODY))
-            .cookieJar(MyCookieJar())
-            .build()
+        session = HttpClientProvider.getClient(this)
 
         // make request for csrf token
         val csrfUrl = "https://cherp.chat/api/csrf"
@@ -109,20 +248,8 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun startPollingUnreadMessages() {
-        val unreadUrl = "https://cherp.chat/api/chat/list/unread"
-        var previousUnreadData = JSONObject()
-        GlobalScope.launch(Dispatchers.IO) {
-            while (true) {
-                val unreadData = getJsonResponse2(unreadUrl)
-                if (unreadData.toString() != previousUnreadData.toString()) {
-                    withContext(Dispatchers.Main) {
-                        showNotification("Unread messages", unreadData.toString())
-                    }
-                    previousUnreadData = unreadData
-                }
-                delay(10_000)
-            }
-        }
+        val serviceIntent = Intent(this, UnreadMessageService::class.java)
+        startService(serviceIntent)
     }
 
     private fun getJsonResponse(url: String): JSONObject {
@@ -132,17 +259,6 @@ class MainActivity : AppCompatActivity() {
             .build()
 
         return JSONObject(session.newCall(request).execute().body!!.string())
-    }
-
-
-    private fun getJsonResponse2(url: String): JSONObject {
-        val request = Request.Builder()
-            .url(url)
-            .build()
-        val response = session.newCall(request).execute()
-        val responseBody = response.body!!.string()
-        response.body?.close()
-        return JSONObject(responseBody)
     }
 
     private fun postFormDataResponse(url: String, formData: FormBody): Response {
@@ -155,23 +271,6 @@ class MainActivity : AppCompatActivity() {
             )
             .build()
         return session.newCall(request).execute()
-    }
-
-    private fun showNotification(title: String, message: String) {
-        val notificationManager =
-            getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel =
-                NotificationChannel("default", "Default Channel", NotificationManager.IMPORTANCE_HIGH)
-            notificationManager.createNotificationChannel(channel)
-        }
-        val notification = NotificationCompat.Builder(this, "default")
-            .setContentTitle(title)
-            .setContentText(message)
-            .setSmallIcon(R.drawable.ic_stat_name)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .build()
-        notificationManager.notify(1, notification)
     }
 
     private fun showToast(message: String) {
