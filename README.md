@@ -20,3 +20,4 @@ A: Create a bug report at https://github.com/Talos0248/Cherp-Notify-Android/issu
 
 Q: I saw an unread on the cherp.chat page, but the app doesn't notify me.
 A: It takes upwards of 20 seconds (subject to change) for the app to update. Altrernately, it could just be a bug.
+
