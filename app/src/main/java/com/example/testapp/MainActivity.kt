@@ -1,11 +1,9 @@
 package com.example.testapp
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.Service
+import android.app.*
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
@@ -20,6 +18,23 @@ import okhttp3.logging.HttpLoggingInterceptor
 import org.json.JSONObject
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.*
+import kotlin.collections.ArrayList
+import kotlin.collections.HashMap
+
+
+class MyCookieJar : CookieJar {
+    private var cookieStore = HashMap<String, List<Cookie>>()
+
+    override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+        cookieStore[url.host] = cookies
+    }
+
+    override fun loadForRequest(url: HttpUrl): List<Cookie> {
+        val cookies = cookieStore[url.host]
+        return cookies ?: ArrayList()
+    }
+}
 
 object HttpClientProvider {
     private var client: OkHttpClient? = null
@@ -73,19 +88,36 @@ class UnreadMessageService : Service() {
 
                         val unreadTime = chats.getJSONObject(0).getString("updated")
 
-                        if(compareDatetimes(unreadTime,previousUnreadTime) > 0){
+                        if (compareDatetimes(unreadTime, previousUnreadTime) > 0) {
                             previousUnreadTime = unreadTime
                             val status = chats.getJSONObject(0).getString("status")
-                            if (status == "ended"){
-                                showNotification("Oh no", "One of your chats has ended :(")
-                            } else{
-                                showNotification("New Unread Detected", "You've got a new unread!")
+                            var chatTitle: String = try {
+                                chats.getJSONObject(0).getString("chatTitle")
+                            } catch (e: java.lang.Exception) {
+                                "An Unnamed Chat"
+                            }
+
+                            if (status == "ended") {
+                                showNotification("Oh no, $chatTitle ended :(", "Total unreads (including disconnects): $chatLength")
+                            } else {
+
+                                var chatType: String = try {
+                                    chats.getJSONObject(0).getJSONObject("chatMessage").getString("type")
+                                } catch (e: java.lang.Exception) {
+                                    "connect"
+                                }
+
+
+                                showNotification(
+                                    "New ${chatType.uppercase()} Unread Detected, Total: $chatLength",
+                                    "Latest unread from: $chatTitle"
+                                )
                             }
 
                         }
                         previousUnreadData = unreadData
                     }
-                } catch (e: java.lang.Exception){
+                } catch (e: java.lang.Exception) {
                     println(e)
                 }
                 delay(20000)
@@ -105,7 +137,8 @@ class UnreadMessageService : Service() {
     }
 
     private fun createNotification(contentText: String): Notification {
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notificationManager =
+            getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
@@ -160,18 +193,6 @@ class UnreadMessageService : Service() {
 }
 
 
-class MyCookieJar : CookieJar {
-    private var cookieStore = HashMap<String, List<Cookie>>()
-
-    override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-        cookieStore[url.host] = cookies
-    }
-
-    override fun loadForRequest(url: HttpUrl): List<Cookie> {
-        val cookies = cookieStore[url.host]
-        return cookies ?: ArrayList()
-    }
-}
 
 class MainActivity : AppCompatActivity() {
 
@@ -279,3 +300,4 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 }
+
