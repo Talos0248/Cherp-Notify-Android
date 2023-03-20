@@ -3,8 +3,6 @@ package com.example.testapp
 import android.app.*
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.widget.Button
@@ -14,7 +12,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
 import okhttp3.*
-import okhttp3.logging.HttpLoggingInterceptor
+//import okhttp3.logging.HttpLoggingInterceptor
 import org.json.JSONObject
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -37,26 +35,23 @@ class MyCookieJar : CookieJar {
 }
 
 object HttpClientProvider {
-    private var client: OkHttpClient? = null
+    private val client = OkHttpClient.Builder()
+        //.addInterceptor(HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.HEADERS))
+        //.addInterceptor(HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.BODY))
+        .cookieJar(MyCookieJar())
+        .build()
 
-    fun getClient(context: Context): OkHttpClient {
-        if (client == null) {
-            client = OkHttpClient().newBuilder()
-                //.addInterceptor(HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.HEADERS))
-                //.addInterceptor(HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.BODY))
-                .cookieJar(MyCookieJar())
-                .build()
-        }
-        return client!!
+    fun getClient(): OkHttpClient {
+        return client
     }
 }
 
 class UnreadMessageService : Service() {
     private lateinit var session: OkHttpClient
-    private val unreadUrl = "https://cherp.chat/api/chat/list/unread"
     private var previousUnreadData = JSONObject()
     private var previousUnreadTime = "0001-01-01 00:00:00.000000"
     private val coroutineScope = CoroutineScope(Dispatchers.IO)
+    private val formatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss[.SSSSSS]")
 
     override fun onBind(intent: Intent?): IBinder? {
         return null
@@ -64,12 +59,10 @@ class UnreadMessageService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-
-        session = HttpClientProvider.getClient(this)
+        session = HttpClientProvider.getClient()
     }
 
-    fun compareDatetimes(datetime1: String, datetime2: String): Int {
-        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss[.SSSSSS]")
+    private fun compareDatetimes(datetime1: String, datetime2: String): Int {
         val dateTime1 = LocalDateTime.parse(datetime1, formatter)
         val dateTime2 = LocalDateTime.parse(datetime2, formatter)
         return dateTime1.compareTo(dateTime2)
@@ -80,7 +73,7 @@ class UnreadMessageService : Service() {
             while (true) {
                 try {
 
-                    val unreadData = getJsonResponse2(unreadUrl)
+                    val unreadData = getUnreadJsonResponse()
                     val chats = unreadData.getJSONArray("chats")
                     val chatLength = chats.length()
 
@@ -91,7 +84,7 @@ class UnreadMessageService : Service() {
                         if (compareDatetimes(unreadTime, previousUnreadTime) > 0) {
                             previousUnreadTime = unreadTime
                             val status = chats.getJSONObject(0).getString("status")
-                            var chatTitle: String = try {
+                            val chatTitle: String = try {
                                 chats.getJSONObject(0).getString("chatTitle")
                             } catch (e: java.lang.Exception) {
                                 "An Unnamed Chat"
@@ -101,7 +94,7 @@ class UnreadMessageService : Service() {
                                 showNotification("Oh no, $chatTitle ended :(", "Total unreads (including disconnects): $chatLength")
                             } else {
 
-                                var chatType: String = try {
+                                val chatType: String = try {
                                     chats.getJSONObject(0).getJSONObject("chatMessage").getString("type")
                                 } catch (e: java.lang.Exception) {
                                     "connect"
@@ -123,7 +116,7 @@ class UnreadMessageService : Service() {
                 delay(20000)
             }
         }
-        startForeground(NOTIFICATION_ID, createNotification("Polling for unread messages"))
+        startForeground(NOTIFICATION_ID, createPersistentPollingNotification())
         return START_STICKY
     }
 
@@ -136,21 +129,19 @@ class UnreadMessageService : Service() {
         }
     }
 
-    private fun createNotification(contentText: String): Notification {
+    private fun createPersistentPollingNotification(): Notification {
         val notificationManager =
             getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_LOW
-            )
-            notificationManager.createNotificationChannel(channel)
-        }
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            CHANNEL_NAME,
+            NotificationManager.IMPORTANCE_LOW
+        )
+        notificationManager.createNotificationChannel(channel)
 
         val notificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Unread Message Service")
-            .setContentText(contentText)
+            .setContentText("Polling for Unread Messages")
             .setSmallIcon(R.drawable.ic_stat_name)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
@@ -164,9 +155,9 @@ class UnreadMessageService : Service() {
         const val CHANNEL_NAME = "Unread Message Service"
     }
 
-    private fun getJsonResponse2(url: String): JSONObject {
+    private fun getUnreadJsonResponse(): JSONObject {
         val request = Request.Builder()
-            .url(url)
+            .url("https://cherp.chat/api/chat/list/unread")
             .build()
         val response = session.newCall(request).execute()
         val responseBody = response.body!!.string()
@@ -177,11 +168,9 @@ class UnreadMessageService : Service() {
     private fun showNotification(title: String, message: String) {
         val notificationManager =
             getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel =
-                NotificationChannel("unreads", "Cherp Unread Notifications", NotificationManager.IMPORTANCE_HIGH)
-            notificationManager.createNotificationChannel(channel)
-        }
+        val channel =
+            NotificationChannel("unreads", "Cherp Unread Notifications", NotificationManager.IMPORTANCE_HIGH)
+        notificationManager.createNotificationChannel(channel)
         val notification = NotificationCompat.Builder(this, "unreads")
             .setContentTitle(title)
             .setContentText(message)
@@ -227,18 +216,16 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        session = HttpClientProvider.getClient(this)
+        session = HttpClientProvider.getClient()
 
         // make request for csrf token
-        val csrfUrl = "https://cherp.chat/api/csrf"
         GlobalScope.launch(Dispatchers.IO) {
-            val csrfData = getJsonResponse(csrfUrl)
+            val csrfData = getCsrfJsonResponse()
             csrfName = csrfData.getString("csrfname")
             csrf = csrfData.getString("csrf")
 
 
             // make login request
-            val loginUrl = "https://cherp.chat/api/user/login"
             val loginPayload = FormBody.Builder()
                 .add("username", username)
                 .add("password", password)
@@ -247,7 +234,7 @@ class MainActivity : AppCompatActivity() {
                 .build()
 
 
-                val loginResp = postFormDataResponse(loginUrl, loginPayload)
+                val loginResp = postLoginFormDataResponse(loginPayload)
 
                 if (loginResp.code != 200) {
                     withContext(Dispatchers.Main) {
@@ -275,18 +262,18 @@ class MainActivity : AppCompatActivity() {
         startService(serviceIntent)
     }
 
-    private fun getJsonResponse(url: String): JSONObject {
+    private fun getCsrfJsonResponse(): JSONObject {
         val request = Request.Builder()
-            .url(url)
+            .url("https://cherp.chat/api/csrf")
             .addHeader("User-Agent", "Mozilla/5.0 (Linux; Android 10; SM-A205U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.5563.57 Mobile Safari/537.36")
             .build()
 
         return JSONObject(session.newCall(request).execute().body!!.string())
     }
 
-    private fun postFormDataResponse(url: String, formData: FormBody): Response {
+    private fun postLoginFormDataResponse(formData: FormBody): Response {
         val request = Request.Builder()
-            .url(url)
+            .url("https://cherp.chat/api/user/login")
             .method("POST", formData)
             .addHeader(
                 "User-Agent",
