@@ -46,6 +46,8 @@ object HttpClientProvider {
     }
 }
 
+
+
 class UnreadMessageService : Service() {
     private lateinit var session: OkHttpClient
     private var previousUnreadData = JSONObject()
@@ -108,8 +110,8 @@ class UnreadMessageService : Service() {
                             }
 
                         }
-                        previousUnreadData = unreadData
                     }
+                    previousUnreadData = unreadData
                 } catch (e: java.lang.Exception) {
                     println(e)
                 }
