@@ -51,9 +51,9 @@ object HttpClientProvider {
 class UnreadMessageService : Service() {
     private lateinit var session: OkHttpClient
     private var previousUnreadData = JSONObject()
-    private var previousUnreadTime = "0001-01-01 00:00:00.000000"
+    private var previousUnreadTime = "0001-01-01 00:00:00"
     private val coroutineScope = CoroutineScope(Dispatchers.IO)
-    private val formatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss[.SSSSSS]")
+    private val formatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
     override fun onBind(intent: Intent?): IBinder? {
         return null
@@ -81,7 +81,7 @@ class UnreadMessageService : Service() {
 
                     if ((unreadData.toString() != previousUnreadData.toString()) && (chatLength > 0)) {
 
-                        val unreadTime = chats.getJSONObject(0).getString("updated")
+                        val unreadTime = chats.getJSONObject(0).getString("updated").substringBefore(".")
 
                         if (compareDatetimes(unreadTime, previousUnreadTime) > 0) {
                             previousUnreadTime = unreadTime
